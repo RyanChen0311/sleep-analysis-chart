@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Clock, Moon, Sun, Coffee, Calendar, ArrowRight } from 'lucide-react';
 
 const SinglePeriodSleepAnalysis = () => {
@@ -13,17 +13,6 @@ const SinglePeriodSleepAnalysis = () => {
     const [hours, minutes] = timeStr.split(':').map(Number);
     return hours + minutes / 60;
   };
-
-  useEffect(() => {
-    const sleepHours = timeToHours(actualSleepTime);
-    const wakeHours = timeToHours(actualWakeTime);
-    if (wakeHours <= sleepHours) {
-      const adjustedWakeTime = Math.min(sleepHours + 8, 23.5);
-      const hours = Math.floor(adjustedWakeTime);
-      const minutes = Math.round((adjustedWakeTime - hours) * 60);
-      setActualWakeTime(`${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`);
-    }
-  }, [actualSleepTime]);
 
   const formatDate = (dateStr, offset = 0) => {
     const date = new Date(dateStr);
@@ -42,14 +31,16 @@ const SinglePeriodSleepAnalysis = () => {
     };
   };
 
-  const calculateLateNightDuration = (normalTime, actualTime) => {
-    let normalHours = timeToHours(normalTime);
-    let actualHours = timeToHours(actualTime);
-    let duration = actualHours - normalHours;
-    if (duration < 0) duration += 24;
-    const hours = Math.floor(duration);
-    const minutes = Math.round((duration - hours) * 60);
-    return { hours, minutes, total: duration };
+  // Returns signed difference: positive = late, negative = early.
+  // Normalised to [-12, +12] so cross-midnight comparisons work correctly.
+  const calculateTimeDiff = (normalTime, actualTime) => {
+    let diff = timeToHours(actualTime) - timeToHours(normalTime);
+    if (diff > 12) diff -= 24;
+    if (diff < -12) diff += 24;
+    const abs = Math.abs(diff);
+    const hours = Math.floor(abs);
+    const minutes = Math.round((abs - hours) * 60);
+    return { hours, minutes, total: diff, isLate: diff >= 0 };
   };
 
   const calculateActualSleepDuration = (sleepTime, wakeTime) => {
@@ -86,6 +77,7 @@ const SinglePeriodSleepAnalysis = () => {
   };
 
   const getXPosition = (hours) => 80 + (hours * 740) / 24;
+  const clampLabelX = (x) => Math.max(110, Math.min(790, x));
 
   const getDateInfo = () => {
     if (timePeriod === 'yesterday-today') {
@@ -105,8 +97,8 @@ const SinglePeriodSleepAnalysis = () => {
   };
 
   const dateInfo = getDateInfo();
-  const lateNightSleep = calculateLateNightDuration(normalSleepTime, actualSleepTime);
-  const lateWakeUp = calculateLateNightDuration(normalWakeTime, actualWakeTime);
+  const lateNightSleep = calculateTimeDiff(normalSleepTime, actualSleepTime);
+  const lateWakeUp = calculateTimeDiff(normalWakeTime, actualWakeTime);
   const actualSleepDuration = calculateActualSleepDuration(actualSleepTime, actualWakeTime);
   const normalSleepDuration = calculateActualSleepDuration(normalSleepTime, normalWakeTime);
 
@@ -198,7 +190,6 @@ const SinglePeriodSleepAnalysis = () => {
                   value={actualWakeTime}
                   onChange={(e) => setActualWakeTime(e.target.value)}
                   className="px-2 py-1 border border-gray-300 rounded text-sm flex-1"
-                  min={actualSleepTime}
                 />
               </div>
             </div>
@@ -251,16 +242,16 @@ const SinglePeriodSleepAnalysis = () => {
           <circle cx={getXPosition(timeToHours(actualWakeTime))} cy="240" r="3" fill="#10b981" />
 
           {/* 標籤 */}
-          <text x={getXPosition(timeToHours(normalSleepTime))} y="30" textAnchor="middle" fontSize="11" fill="#4f46e5">
+          <text x={clampLabelX(getXPosition(timeToHours(normalSleepTime)))} y="32" textAnchor="middle" fontSize="11" fill="#4f46e5">
             正常睡覺 {normalSleepTime}
           </text>
-          <text x={getXPosition(timeToHours(normalWakeTime))} y="210" textAnchor="middle" fontSize="11" fill="#d97706">
+          <text x={clampLabelX(getXPosition(timeToHours(normalWakeTime)))} y="212" textAnchor="middle" fontSize="11" fill="#d97706">
             正常起床 {normalWakeTime}
           </text>
-          <text x={getXPosition(timeToHours(actualSleepTime))} y="25" textAnchor="middle" fontSize="11" fill="#dc2626">
+          <text x={clampLabelX(getXPosition(timeToHours(actualSleepTime)))} y="20" textAnchor="middle" fontSize="11" fill="#dc2626">
             實際睡覺 {actualSleepTime}
           </text>
-          <text x={getXPosition(timeToHours(actualWakeTime))} y="205" textAnchor="middle" fontSize="11" fill="#059669">
+          <text x={clampLabelX(getXPosition(timeToHours(actualWakeTime)))} y="200" textAnchor="middle" fontSize="11" fill="#059669">
             實際起床 {actualWakeTime}
           </text>
 
@@ -307,13 +298,21 @@ const SinglePeriodSleepAnalysis = () => {
           {dateInfo.firstDayLabel}→{dateInfo.secondDayLabel} 睡眠分析
         </h3>
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-          <div className="bg-red-50 p-3 rounded">
-            <p className="font-medium text-red-700">晚睡時間</p>
-            <p className="text-red-600">{lateNightSleep.hours}小時{lateNightSleep.minutes}分鐘</p>
+          <div className={`p-3 rounded ${lateNightSleep.isLate ? 'bg-red-50' : 'bg-purple-50'}`}>
+            <p className={`font-medium ${lateNightSleep.isLate ? 'text-red-700' : 'text-purple-700'}`}>
+              {lateNightSleep.isLate ? '晚睡時間' : '早睡時間'}
+            </p>
+            <p className={lateNightSleep.isLate ? 'text-red-600' : 'text-purple-600'}>
+              {lateNightSleep.hours}小時{lateNightSleep.minutes}分鐘
+            </p>
           </div>
-          <div className="bg-orange-50 p-3 rounded">
-            <p className="font-medium text-orange-700">晚起時間</p>
-            <p className="text-orange-600">{lateWakeUp.hours}小時{lateWakeUp.minutes}分鐘</p>
+          <div className={`p-3 rounded ${lateWakeUp.isLate ? 'bg-orange-50' : 'bg-teal-50'}`}>
+            <p className={`font-medium ${lateWakeUp.isLate ? 'text-orange-700' : 'text-teal-700'}`}>
+              {lateWakeUp.isLate ? '晚起時間' : '早起時間'}
+            </p>
+            <p className={lateWakeUp.isLate ? 'text-orange-600' : 'text-teal-600'}>
+              {lateWakeUp.hours}小時{lateWakeUp.minutes}分鐘
+            </p>
           </div>
           <div className="bg-green-50 p-3 rounded">
             <p className="font-medium text-green-700">實際睡眠</p>
